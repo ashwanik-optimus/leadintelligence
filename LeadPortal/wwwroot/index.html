@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Lead Submission — Lead Intelligence Portal</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #f0f4ff;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem;
+    }
+
+    .card {
+      background: #fff;
+      border-radius: 16px;
+      box-shadow: 0 4px 32px rgba(0,0,0,.10);
+      padding: 2.5rem;
+      width: 100%;
+      max-width: 520px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: .6rem;
+      margin-bottom: 2rem;
+    }
+    .brand-dot { width: 10px; height: 10px; border-radius: 50%; background: #4f46e5; }
+    .brand-name { font-size: .8rem; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: #4f46e5; }
+
+    h1 { font-size: 1.6rem; font-weight: 700; color: #111; margin-bottom: .4rem; }
+    .subtitle { color: #64748b; font-size: .95rem; margin-bottom: 2rem; }
+
+    .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+
+    .field { display: flex; flex-direction: column; gap: .35rem; margin-bottom: 1.1rem; }
+    .field label { font-size: .85rem; font-weight: 600; color: #374151; }
+    .field input, .field select {
+      padding: .65rem .9rem;
+      border: 1.5px solid #d1d5db;
+      border-radius: 8px;
+      font-size: .95rem;
+      color: #111;
+      background: #fff;
+      transition: border-color .15s;
+      width: 100%;
+    }
+    .field input:focus, .field select:focus {
+      outline: none;
+      border-color: #4f46e5;
+      box-shadow: 0 0 0 3px rgba(79,70,229,.12);
+    }
+    .field input.error, .field select.error { border-color: #ef4444; }
+    .error-msg { font-size: .78rem; color: #ef4444; min-height: 1em; }
+
+    .btn-submit {
+      width: 100%;
+      padding: .8rem;
+      background: #4f46e5;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      margin-top: .5rem;
+      transition: background .15s, transform .1s;
+    }
+    .btn-submit:hover { background: #4338ca; }
+    .btn-submit:active { transform: scale(.98); }
+    .btn-submit:disabled { background: #a5b4fc; cursor: not-allowed; }
+
+    .toast {
+      display: none;
+      border-radius: 10px;
+      padding: 1rem 1.2rem;
+      margin-top: 1.2rem;
+      font-size: .9rem;
+      font-weight: 500;
+    }
+    .toast.success { display: block; background: #ecfdf5; color: #065f46; border: 1px solid #6ee7b7; }
+    .toast.failure { display: block; background: #fef2f2; color: #991b1b; border: 1px solid #fca5a5; }
+
+    .dashboard-link {
+      display: block;
+      text-align: center;
+      margin-top: 1.4rem;
+      color: #4f46e5;
+      font-size: .85rem;
+      text-decoration: none;
+    }
+    .dashboard-link:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+<div class="card">
+  <div class="brand">
+    <div class="brand-dot"></div>
+    <span class="brand-name">Lead Intelligence Portal</span>
+  </div>
+
+  <h1>Get in touch</h1>
+  <p class="subtitle">Tell us a bit about your company and we'll be in touch shortly.</p>
+
+  <form id="leadForm" novalidate>
+    <div class="form-row">
+      <div class="field">
+        <label for="firstName">First Name *</label>
+        <input id="firstName" name="firstName" type="text" placeholder="Jane" />
+        <span class="error-msg" id="err-firstName"></span>
+      </div>
+      <div class="field">
+        <label for="lastName">Last Name *</label>
+        <input id="lastName" name="lastName" type="text" placeholder="Smith" />
+        <span class="error-msg" id="err-lastName"></span>
+      </div>
+    </div>
+
+    <div class="field">
+      <label for="email">Corporate Email *</label>
+      <input id="email" name="email" type="email" placeholder="jane@yourcompany.com" />
+      <span class="error-msg" id="err-email"></span>
+    </div>
+
+    <div class="field">
+      <label for="companyName">Company Name *</label>
+      <input id="companyName" name="companyName" type="text" placeholder="Acme Corp" />
+      <span class="error-msg" id="err-companyName"></span>
+    </div>
+
+    <div class="field">
+      <label for="budgetBand">Estimated Annual Budget *</label>
+      <select id="budgetBand" name="budgetBand">
+        <option value="">— Select a range —</option>
+        <option value="Under10k">Under $10k</option>
+        <option value="From10kTo50k">$10k – $50k</option>
+        <option value="Over50k">Greater than $50k</option>
+      </select>
+      <span class="error-msg" id="err-budgetBand"></span>
+    </div>
+
+    <button type="submit" class="btn-submit" id="submitBtn">Submit Inquiry</button>
+
+    <div class="toast" id="toast"></div>
+  </form>
+
+  <a href="/dashboard.html" class="dashboard-link">Internal Dashboard →</a>
+</div>
+
+<script>
+  const form = document.getElementById('leadForm');
+  const toast = document.getElementById('toast');
+  const submitBtn = document.getElementById('submitBtn');
+
+  const fields = ['firstName', 'lastName', 'email', 'companyName', 'budgetBand'];
+
+  function clearErrors() {
+    fields.forEach(f => {
+      document.getElementById(f).classList.remove('error');
+      document.getElementById('err-' + f).textContent = '';
+    });
+    toast.className = 'toast';
+  }
+
+  function showErrors(errors) {
+    for (const [key, msgs] of Object.entries(errors)) {
+      const input = document.getElementById(key);
+      const errEl = document.getElementById('err-' + key);
+      if (input) input.classList.add('error');
+      if (errEl) errEl.textContent = msgs[0];
+    }
+  }
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    clearErrors();
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Submitting…';
+
+    const payload = {
+      firstName: form.firstName.value.trim(),
+      lastName:  form.lastName.value.trim(),
+      email:     form.email.value.trim(),
+      companyName: form.companyName.value.trim(),
+      budgetBand:  form.budgetBand.value || null
+    };
+
+    try {
+      const res = await fetch('/api/leads', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      if (res.ok) {
+        toast.className = 'toast success';
+        toast.textContent = 'Thank you! Your inquiry has been received. We\'ll be in touch soon.';
+        form.reset();
+      } else if (res.status === 400) {
+        const body = await res.json();
+        const errors = body.errors || {};
+        showErrors(errors);
+        toast.className = 'toast failure';
+        toast.textContent = 'Please correct the errors above and try again.';
+      } else {
+        throw new Error('Server error');
+      }
+    } catch {
+      toast.className = 'toast failure';
+      toast.textContent = 'Something went wrong. Please try again later.';
+    } finally {
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Submit Inquiry';
+    }
+  });
+</script>
+</body>
+</html>

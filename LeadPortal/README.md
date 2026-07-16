@@ -1,0 +1,127 @@
+# Lead Intelligence Portal
+
+A lightweight **Lead Distribution Portal** — public web form, real-time internal dashboard, and ASP.NET Core backend with a mocked HubSpot CRM integration.
+
+## Tech stack
+
+| Layer | Choice |
+|---|---|
+| Backend | .NET 10 · ASP.NET Core Minimal API |
+| Database | EF Core 10 + SQLite (file-based, zero setup) |
+| Real-time | SignalR (`/hub/leads`) |
+| Frontend | Plain HTML/CSS/JS — no build step |
+
+## Running the app
+
+```bash
+cd LeadPortal
+dotnet run
+```
+
+The app binds on **http://localhost:5100** by default (see `Properties/launchSettings.json`).
+
+| URL | Purpose |
+|---|---|
+| `http://localhost:5100/` | Public lead submission form |
+| `http://localhost:5100/dashboard.html` | Internal real-time dashboard |
+
+On first run EF Core automatically creates `leads.db` (SQLite) and seeds three sample leads so the dashboard is never empty.
+
+## API reference
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/api/leads` | Submit a new lead |
+| `GET` | `/api/leads` | All leads, newest first |
+| `GET` | `/api/analytics` | Counts + pipeline value |
+| `GET` | `/api/integration/status` | HubSpot connection health |
+| `GET` | `/health` | Liveness/readiness probe (checks DB connectivity) |
+| WS | `/hub/leads` | SignalR hub — events: `leadCreated`, `leadUpdated` |
+
+### `POST /api/leads` payload
+
+```json
+{
+  "firstName":   "Jane",
+  "lastName":    "Smith",
+  "email":       "jane@yourcompany.com",
+  "companyName": "Acme Corp",
+  "budgetBand":  "Over50k"
+}
+```
+
+`budgetBand` values: `Under10k` · `From10kTo50k` · `Over50k`
+
+Corporate email only — the rejected free domains are configurable (see `LeadValidation.BlockedEmailDomains`).
+
+## Configuration
+
+All tunable behaviour lives in `appsettings.json` (overridable per-environment and via
+environment variables using the `Section__Key` convention — e.g. `HubSpot__FailureRate`).
+No behavioural values are hard-coded; each section is bound to a strongly-typed options
+class under `Configuration/` and `HubSpot` is validated on startup.
+
+| Section | Key(s) | Purpose |
+|---|---|---|
+| `ConnectionStrings` | `Default` | SQLite location. On Azure this is set to a persistent path (`Data Source=/home/data/leads.db`). |
+| `HubSpot` | `Mode`, `StatusLabel`, `MinLatencyMs`, `MaxLatencyMs`, `FailureRate`, `MockContactIdPrefix`, `BaseUrl`, `AccessToken` | Integration mode + mock behaviour + real-client credentials. |
+| `LeadValidation` | `BlockedEmailDomains` | Free/consumer email domains to reject. |
+| `BudgetValuation` | `Under10k`, `From10kTo50k`, `Over50k` | Estimated pipeline value per budget band. |
+| `Seeding` | `Enabled` | Whether to seed sample leads when the DB is empty. |
+| `Cors` | `AllowedOrigins` | Cross-origin allow-list (empty ⇒ same-origin only). |
+
+Example environment-variable override (no code or file changes):
+
+```bash
+HubSpot__FailureRate=0        # never fail the mock sync
+BudgetValuation__Over50k=100000
+Seeding__Enabled=false
+```
+
+## Project layout
+
+```
+Configuration/   strongly-typed options (HubSpot, LeadValidation, BudgetValuation, Seeding, Cors)
+Contracts/       request/response DTOs
+Data/            AppDbContext + Seed
+Endpoints/       HTTP API mapping (LeadApiEndpoints)
+HealthChecks/    DatabaseHealthCheck
+Hubs/            SignalR LeadsHub
+Models/          Lead entity + enums
+Services/        LeadService, IHubSpotClient, MockHubSpotClient, HubSpotClient (real stub)
+wwwroot/         static SPA (index.html, dashboard.html)
+```
+
+## HubSpot integration — swapping Mock → Real
+
+The integration is behind a single interface:
+
+```csharp
+// Services/IHubSpotClient.cs
+public interface IHubSpotClient
+{
+    Task<HubSpotSyncResult> UpsertContactAsync(Lead lead);
+}
+```
+
+**Current:** `MockHubSpotClient` — simulated latency and failure rate are configured under
+the `HubSpot` section (defaults: 800–1500 ms latency, 15% failure rate).
+
+**To wire up the real HubSpot CRM API:**
+
+1. Create a Private App in your HubSpot Developer Sandbox and copy the access token.
+2. Add the token to `appsettings.json` (or an environment variable):
+   ```json
+   "HubSpot": { "AccessToken": "pat-na1-xxxx" }
+   ```
+3. Open `Services/HubSpotClient.cs` and implement `RealHubSpotClient`:
+   - `POST https://api.hubapi.com/crm/v3/objects/contacts` for new contacts.
+   - `PATCH /crm/v3/objects/contacts/{id}?idProperty=email` to update by email (upsert).
+   - Map the response `id` field to `HubSpotContactId`.
+4. In `Program.cs`, swap the DI registration:
+   ```diff
+   - builder.Services.AddSingleton<IHubSpotClient, MockHubSpotClient>();
+   + builder.Services.AddSingleton<IHubSpotClient, RealHubSpotClient>();
+   ```
+
+No other code changes needed — `LeadService` calls `IHubSpotClient` and handles both success and failure paths identically.

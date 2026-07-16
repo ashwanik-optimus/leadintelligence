@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dashboard — Lead Intelligence Portal</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #0f172a;
+      color: #e2e8f0;
+      min-height: 100vh;
+    }
+
+    /* ── Top Bar ── */
+    header {
+      background: #1e293b;
+      border-bottom: 1px solid #334155;
+      padding: 1rem 2rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .brand { display: flex; align-items: center; gap: .6rem; }
+    .brand-dot { width: 10px; height: 10px; border-radius: 50%; background: #6366f1; }
+    .brand-name { font-size: .75rem; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: #6366f1; }
+    .header-nav a {
+      color: #94a3b8; font-size: .85rem; text-decoration: none;
+      padding: .4rem .8rem; border-radius: 6px;
+    }
+    .header-nav a:hover { background: #334155; color: #e2e8f0; }
+
+    main { padding: 2rem; max-width: 1400px; margin: 0 auto; }
+
+    h2 { font-size: 1.35rem; font-weight: 700; margin-bottom: 1.2rem; color: #f1f5f9; }
+
+    /* ── Analytics Badges ── */
+    .analytics-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 1rem;
+      margin-bottom: 2rem;
+    }
+    .badge {
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 12px;
+      padding: 1.2rem 1.4rem;
+    }
+    .badge-label { font-size: .75rem; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: #64748b; margin-bottom: .4rem; }
+    .badge-value { font-size: 2rem; font-weight: 700; color: #f1f5f9; }
+    .badge-value.accent { color: #6366f1; }
+
+    /* ── Integration Status Panel ── */
+    .integration-panel {
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 12px;
+      padding: 1.4rem 1.6rem;
+      margin-bottom: 2rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 1rem;
+    }
+    .integration-panel h2 { margin-bottom: 0; }
+    .integration-status {
+      display: flex;
+      align-items: center;
+      gap: .6rem;
+      font-size: .9rem;
+      font-weight: 600;
+    }
+    .status-dot {
+      width: 10px; height: 10px;
+      border-radius: 50%;
+      background: #94a3b8;
+      transition: background .3s;
+    }
+    .status-dot.connected { background: #22c55e; box-shadow: 0 0 6px #22c55e80; }
+    .status-dot.error     { background: #ef4444; }
+    .mode-pill {
+      font-size: .72rem;
+      font-weight: 700;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      padding: .2rem .6rem;
+      border-radius: 99px;
+      background: #312e81;
+      color: #a5b4fc;
+    }
+
+    /* ── Lead Table ── */
+    .table-section {
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 12px;
+      overflow: hidden;
+    }
+    .table-header {
+      padding: 1.2rem 1.6rem;
+      border-bottom: 1px solid #334155;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .table-header h2 { margin-bottom: 0; }
+    .live-badge {
+      display: flex; align-items: center; gap: .4rem;
+      font-size: .72rem; font-weight: 700; letter-spacing: .08em;
+      text-transform: uppercase; color: #22c55e;
+    }
+    .live-pulse {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: #22c55e;
+      animation: pulse 1.8s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%,100% { opacity: 1; transform: scale(1); }
+      50%      { opacity: .4; transform: scale(.85); }
+    }
+
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: .875rem; }
+    thead th {
+      padding: .75rem 1rem;
+      text-align: left;
+      font-size: .72rem;
+      font-weight: 700;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      color: #64748b;
+      background: #0f172a;
+      border-bottom: 1px solid #334155;
+    }
+    tbody tr {
+      border-bottom: 1px solid #1e293b;
+      transition: background .1s;
+    }
+    tbody tr:hover { background: #162033; }
+    tbody tr.new-row { animation: rowFade .8s ease; }
+    @keyframes rowFade {
+      from { background: #312e8140; }
+      to   { background: transparent; }
+    }
+    td { padding: .8rem 1rem; color: #cbd5e1; vertical-align: middle; }
+    td .name { font-weight: 600; color: #f1f5f9; }
+    td .email { color: #94a3b8; font-size: .8rem; }
+    td .company { color: #e2e8f0; }
+
+    .budget-pill {
+      display: inline-block;
+      padding: .2rem .6rem;
+      border-radius: 99px;
+      font-size: .72rem;
+      font-weight: 700;
+      letter-spacing: .06em;
+    }
+    .budget-under { background: #1e3a5f; color: #93c5fd; }
+    .budget-mid   { background: #1a3a2e; color: #6ee7b7; }
+    .budget-over  { background: #3b1d5a; color: #c4b5fd; }
+
+    .status-pill {
+      display: inline-block;
+      padding: .22rem .65rem;
+      border-radius: 99px;
+      font-size: .72rem;
+      font-weight: 700;
+    }
+    .pill-validated { background: #14532d; color: #86efac; }
+    .pill-received  { background: #1e3a5f; color: #93c5fd; }
+    .pill-failed    { background: #450a0a; color: #fca5a5; }
+    .pill-synced    { background: #14532d; color: #86efac; }
+    .pill-pending   { background: #1c1917; color: #a8a29e; border: 1px solid #44403c; }
+    .pill-hs-failed { background: #450a0a; color: #fca5a5; }
+
+    .empty-state {
+      text-align: center;
+      padding: 3rem 1rem;
+      color: #64748b;
+    }
+
+    .updated-flash { animation: flash .5s ease; }
+    @keyframes flash {
+      0%,100% { background: transparent; }
+      50%      { background: #312e8130; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <div class="brand-dot"></div>
+    <span class="brand-name">Lead Intelligence Portal — Dashboard</span>
+  </div>
+  <nav class="header-nav">
+    <a href="/index.html">Submit a Lead</a>
+  </nav>
+</header>
+
+<main>
+
+  <!-- Analytics -->
+  <div class="analytics-grid">
+    <div class="badge">
+      <div class="badge-label">Total Leads</div>
+      <div class="badge-value accent" id="stat-total">—</div>
+    </div>
+    <div class="badge">
+      <div class="badge-label">Pipeline Value</div>
+      <div class="badge-value" id="stat-pipeline">—</div>
+    </div>
+    <div class="badge">
+      <div class="badge-label">HS Synced</div>
+      <div class="badge-value" id="stat-synced">—</div>
+    </div>
+    <div class="badge">
+      <div class="badge-label">Pending Sync</div>
+      <div class="badge-value" id="stat-pending">—</div>
+    </div>
+    <div class="badge">
+      <div class="badge-label">Sync Failed</div>
+      <div class="badge-value" id="stat-failed">—</div>
+    </div>
+  </div>
+
+  <!-- HubSpot Router Control -->
+  <div class="integration-panel">
+    <h2>HubSpot Router Control</h2>
+    <div class="integration-status">
+      <div class="status-dot" id="hs-dot"></div>
+      <span id="hs-label">Checking…</span>
+      <span class="mode-pill" id="hs-mode" style="display:none"></span>
+    </div>
+  </div>
+
+  <!-- Lead Feed -->
+  <div class="table-section">
+    <div class="table-header">
+      <h2>Live Lead Feed</h2>
+      <div class="live-badge"><div class="live-pulse"></div>LIVE</div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Company</th>
+            <th>Budget</th>
+            <th>Value</th>
+            <th>Local Status</th>
+            <th>HubSpot Sync</th>
+            <th>Received</th>
+          </tr>
+        </thead>
+        <tbody id="leads-body">
+          <tr><td colspan="7" class="empty-state">Loading leads…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/8.0.0/signalr.min.js"></script>
+<script>
+  // ── Helpers ──────────────────────────────────────────────────────────────
+
+  const fmt = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
+  const fmtDate = d => new Date(d).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+
+  function budgetLabel(band) {
+    return { Under10k: 'Under $10k', From10kTo50k: '$10k–$50k', Over50k: '>$50k' }[band] ?? band;
+  }
+  function budgetClass(band) {
+    return { Under10k: 'budget-under', From10kTo50k: 'budget-mid', Over50k: 'budget-over' }[band] ?? '';
+  }
+  function localClass(s) {
+    return { Validated: 'pill-validated', Received: 'pill-received', Failed: 'pill-failed' }[s] ?? '';
+  }
+  function syncClass(s) {
+    return { Synced: 'pill-synced', Pending: 'pill-pending', Failed: 'pill-hs-failed' }[s] ?? '';
+  }
+
+  function buildRow(lead, isNew = false) {
+    const tr = document.createElement('tr');
+    tr.dataset.id = lead.id;
+    if (isNew) tr.classList.add('new-row');
+    tr.innerHTML = `
+      <td>
+        <div class="name">${esc(lead.firstName)} ${esc(lead.lastName)}</div>
+        <div class="email">${esc(lead.email)}</div>
+      </td>
+      <td class="company">${esc(lead.companyName)}</td>
+      <td><span class="budget-pill ${budgetClass(lead.budgetBand)}">${budgetLabel(lead.budgetBand)}</span></td>
+      <td>${fmt.format(lead.estimatedValue)}</td>
+      <td><span class="status-pill ${localClass(lead.localStatus)}">${esc(lead.localStatus)}</span></td>
+      <td><span class="status-pill ${syncClass(lead.hubSpotSyncStatus)}">${esc(lead.hubSpotSyncStatus)}</span></td>
+      <td>${fmtDate(lead.createdAt)}</td>
+    `;
+    return tr;
+  }
+
+  function esc(s) {
+    return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  // ── State ─────────────────────────────────────────────────────────────────
+
+  const tbody = document.getElementById('leads-body');
+  const leadsMap = new Map(); // id → row element
+
+  function renderLeads(leads) {
+    tbody.innerHTML = '';
+    if (!leads.length) {
+      tbody.innerHTML = '<tr><td colspan="7" class="empty-state">No leads yet.</td></tr>';
+      return;
+    }
+    leads.forEach(l => {
+      const row = buildRow(l);
+      leadsMap.set(l.id, row);
+      tbody.appendChild(row);
+    });
+  }
+
+  function upsertLead(lead, isNew = false) {
+    const existing = leadsMap.get(lead.id);
+    const row = buildRow(lead, isNew);
+    leadsMap.set(lead.id, row);
+    if (existing) {
+      existing.replaceWith(row);
+      row.classList.add('updated-flash');
+    } else {
+      // Prepend new lead (newest first)
+      const empty = tbody.querySelector('[colspan]');
+      if (empty) tbody.innerHTML = '';
+      tbody.insertBefore(row, tbody.firstChild);
+    }
+    updateAnalytics();
+  }
+
+  // ── Analytics ─────────────────────────────────────────────────────────────
+
+  async function updateAnalytics() {
+    try {
+      const r = await fetch('/api/analytics');
+      if (!r.ok) return;
+      const d = await r.json();
+      document.getElementById('stat-total').textContent   = d.totalLeads;
+      document.getElementById('stat-pipeline').textContent = fmt.format(d.totalPipelineValue);
+      document.getElementById('stat-synced').textContent  = d.syncedCount;
+      document.getElementById('stat-pending').textContent = d.pendingCount;
+      document.getElementById('stat-failed').textContent  = d.failedCount;
+    } catch { /* silent */ }
+  }
+
+  // ── Integration Status ───────────────────────────────────────────────────
+
+  async function checkIntegrationStatus() {
+    const dot   = document.getElementById('hs-dot');
+    const label = document.getElementById('hs-label');
+    const pill  = document.getElementById('hs-mode');
+    try {
+      const r = await fetch('/api/integration/status');
+      if (!r.ok) throw new Error();
+      const d = await r.json();
+      dot.className = 'status-dot ' + (d.connected ? 'connected' : 'error');
+      label.textContent = d.label ?? (d.connected ? 'Connected' : 'Disconnected');
+      pill.textContent = d.mode?.toUpperCase() ?? '';
+      pill.style.display = '';
+    } catch {
+      dot.className = 'status-dot error';
+      label.textContent = 'Unavailable';
+    }
+  }
+
+  // ── Initial Load ──────────────────────────────────────────────────────────
+
+  async function init() {
+    checkIntegrationStatus();
+    try {
+      const r = await fetch('/api/leads');
+      if (!r.ok) throw new Error();
+      const leads = await r.json();
+      renderLeads(leads);
+    } catch {
+      tbody.innerHTML = '<tr><td colspan="7" class="empty-state">Could not load leads.</td></tr>';
+    }
+    updateAnalytics();
+  }
+
+  // ── SignalR ───────────────────────────────────────────────────────────────
+
+  const connection = new signalR.HubConnectionBuilder()
+    .withUrl('/hub/leads')
+    .withAutomaticReconnect()
+    .build();
+
+  connection.on('leadCreated', lead => upsertLead(lead, true));
+  connection.on('leadUpdated', lead => upsertLead(lead, false));
+
+  async function startSignalR() {
+    try {
+      await connection.start();
+    } catch (e) {
+      setTimeout(startSignalR, 3000);
+    }
+  }
+
+  init();
+  startSignalR();
+</script>
+</body>
+</html>
