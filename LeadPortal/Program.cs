@@ -1,10 +1,13 @@
 using System.Text.Json.Serialization;
+using System.Threading.RateLimiting;
 using LeadPortal.Configuration;
 using LeadPortal.Data;
 using LeadPortal.Endpoints;
 using LeadPortal.HealthChecks;
 using LeadPortal.Hubs;
+using LeadPortal.Middleware;
 using LeadPortal.Services;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -49,6 +52,8 @@ builder.Services.AddDbContext<AppDbContext>(opt => opt.UseSqlite(sqliteConn));
 // ── Application services ─────────────────────────────────────────────────────
 builder.Services.AddScoped<LeadService>();
 builder.Services.AddSingleton<IHubSpotClient, MockHubSpotClient>();
+builder.Services.AddSingleton<ILeadSyncQueue, LeadSyncQueue>();
+builder.Services.AddHostedService<LeadSyncWorker>();
 
 builder.Services.AddSignalR();
 builder.Services.ConfigureHttpJsonOptions(o =>
@@ -56,6 +61,29 @@ builder.Services.ConfigureHttpJsonOptions(o =>
 builder.Services.AddProblemDetails();
 builder.Services.AddHealthChecks()
     .AddCheck<DatabaseHealthCheck>("database");
+
+// ── Client IP behind Azure's reverse proxy (rate limiting + logging) ─────────
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    options.KnownNetworks.Clear();
+    options.KnownProxies.Clear();
+});
+
+// ── Rate limiting (protects the public submission endpoint) ──────────────────
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.AddPolicy(LeadApiEndpoints.SubmitPolicy, httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 5,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0
+            }));
+});
 
 // ── CORS (config-driven; same-origin SPA needs none) ─────────────────────────
 var corsOptions = builder.Configuration.GetSection(CorsOptions.SectionName).Get<CorsOptions>()
@@ -80,10 +108,14 @@ using (var scope = app.Services.CreateScope())
 }
 
 // ── Middleware pipeline ──────────────────────────────────────────────────────
+app.UseForwardedHeaders();
+app.UseSecurityHeaders();
+
 if (!app.Environment.IsDevelopment())
     app.UseExceptionHandler();
 
 app.UseSerilogRequestLogging();
+app.UseRateLimiter();
 app.UseCors();
 app.UseDefaultFiles();
 app.UseStaticFiles();

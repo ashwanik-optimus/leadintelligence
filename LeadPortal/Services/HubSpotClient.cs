@@ -15,6 +15,6 @@ namespace LeadPortal.Services;
 //   6. Register RealHubSpotClient instead of MockHubSpotClient in Program.cs DI.
 public class RealHubSpotClient : IHubSpotClient
 {
-    public Task<HubSpotSyncResult> UpsertContactAsync(Lead lead) =>
+    public Task<HubSpotSyncResult> UpsertContactAsync(Lead lead, CancellationToken cancellationToken = default) =>
         throw new NotImplementedException("Replace with real HubSpot OAuth + CRM API calls.");
 }

@@ -12,10 +12,10 @@ public class MockHubSpotClient(IOptions<HubSpotOptions> options, ILogger<MockHub
 {
     private readonly HubSpotOptions _options = options.Value;
 
-    public async Task<HubSpotSyncResult> UpsertContactAsync(Lead lead)
+    public async Task<HubSpotSyncResult> UpsertContactAsync(Lead lead, CancellationToken cancellationToken = default)
     {
         var delay = Random.Shared.Next(_options.MinLatencyMs, _options.MaxLatencyMs + 1);
-        await Task.Delay(delay);
+        await Task.Delay(delay, cancellationToken);
 
         if (Random.Shared.NextDouble() < _options.FailureRate)
         {

@@ -64,8 +64,8 @@ class under `Configuration/` and `HubSpot` is validated on startup.
 | Section | Key(s) | Purpose |
 |---|---|---|
 | `ConnectionStrings` | `Default` | SQLite location. On Azure this is set to a persistent path (`Data Source=/home/data/leads.db`). |
-| `HubSpot` | `Mode`, `StatusLabel`, `MinLatencyMs`, `MaxLatencyMs`, `FailureRate`, `MockContactIdPrefix`, `BaseUrl`, `AccessToken` | Integration mode + mock behaviour + real-client credentials. |
-| `LeadValidation` | `BlockedEmailDomains` | Free/consumer email domains to reject. |
+| `HubSpot` | `Mode`, `StatusLabel`, `MinLatencyMs`, `MaxLatencyMs`, `FailureRate`, `MockContactIdPrefix`, `MaxSyncAttempts`, `RetryDelayMs`, `BaseUrl`, `AccessToken` | Integration mode + mock behaviour + retry policy + real-client credentials. |
+| `LeadValidation` | `BlockedEmailDomains`, `MaxFieldLength`, `MaxEmailLength` | Corporate-email rule + input length caps. |
 | `BudgetValuation` | `Under10k`, `From10kTo50k`, `Over50k` | Estimated pipeline value per budget band. |
 | `Seeding` | `Enabled` | Whether to seed sample leads when the DB is empty. |
 | `Cors` | `AllowedOrigins` | Cross-origin allow-list (empty ⇒ same-origin only). |
@@ -78,17 +78,44 @@ BudgetValuation__Over50k=100000
 Seeding__Enabled=false
 ```
 
+## Security
+
+| Control | Implementation |
+|---|---|
+| Transport | HTTPS-only enforced at Azure App Service; HTTP → HTTPS 301. |
+| Response headers | CSP, `X-Content-Type-Options`, `X-Frame-Options: DENY`, `Referrer-Policy` (`Middleware/SecurityHeadersMiddleware`). |
+| Rate limiting | Per-IP fixed window on `POST /api/leads` (5/min) via `AddRateLimiter`. |
+| Client IP | `ForwardedHeaders` honours `X-Forwarded-For` behind Azure's proxy. |
+| CORS | Deny-by-default; explicit allow-list only. |
+| Input validation | Required fields, corporate-email rule, and length caps; all server-side. |
+| CDN integrity | SignalR client pinned with SRI (`integrity` + `crossorigin`). |
+| Injection / XSS | EF Core parameterization; dashboard HTML-escapes all lead fields. |
+| Dependencies | `dotnet list package --vulnerable` clean; patched SQLite pinned (CVE-2025-6965). |
+
+> **Not yet implemented:** authentication/authorization. The dashboard and read APIs are
+> currently unauthenticated — add Entra ID (or equivalent) before exposing real lead PII.
+
+## Architecture notes
+
+- CRM sync is decoupled from the request via an in-process queue (`ILeadSyncQueue`) drained
+  by a hosted `LeadSyncWorker` with bounded retries — each item runs in its own DI scope, so
+  it never touches the request's `DbContext`. Swap the queue implementation for Azure Service
+  Bus / Storage Queues to get at-least-once delivery across restarts.
+- `GET /health` performs a real DB connectivity check for load-balancer probes.
+
 ## Project layout
 
 ```
 Configuration/   strongly-typed options (HubSpot, LeadValidation, BudgetValuation, Seeding, Cors)
-Contracts/       request/response DTOs
+Contracts/       request/response DTOs (CreateLeadRequest, LeadDto, AnalyticsResponse)
 Data/            AppDbContext + Seed
 Endpoints/       HTTP API mapping (LeadApiEndpoints)
 HealthChecks/    DatabaseHealthCheck
 Hubs/            SignalR LeadsHub
+Middleware/      SecurityHeadersMiddleware
 Models/          Lead entity + enums
-Services/        LeadService, IHubSpotClient, MockHubSpotClient, HubSpotClient (real stub)
+Services/        LeadService, IHubSpotClient, MockHubSpotClient, HubSpotClient (real stub),
+                 ILeadSyncQueue, LeadSyncQueue, LeadSyncWorker (background sync)
 wwwroot/         static SPA (index.html, dashboard.html)
 ```
 

@@ -6,5 +6,5 @@ public record HubSpotSyncResult(bool Success, string? ContactId, string? ErrorMe
 
 public interface IHubSpotClient
 {
-    Task<HubSpotSyncResult> UpsertContactAsync(Lead lead);
+    Task<HubSpotSyncResult> UpsertContactAsync(Lead lead, CancellationToken cancellationToken = default);
 }

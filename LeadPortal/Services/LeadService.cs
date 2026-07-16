@@ -11,13 +11,13 @@ namespace LeadPortal.Services;
 
 public class LeadService(
     AppDbContext db,
-    IHubSpotClient hubSpot,
     IHubContext<LeadsHub> hub,
-    IServiceScopeFactory scopeFactory,
+    ILeadSyncQueue syncQueue,
     IOptions<LeadValidationOptions> validationOptions,
     IOptions<BudgetValuationOptions> valuationOptions,
     ILogger<LeadService> logger)
 {
+    private readonly LeadValidationOptions _validation = validationOptions.Value;
     private readonly HashSet<string> _blockedDomains =
         new(validationOptions.Value.BlockedEmailDomains, StringComparer.OrdinalIgnoreCase);
     private readonly BudgetValuationOptions _valuation = valuationOptions.Value;
@@ -26,16 +26,17 @@ public class LeadService(
     {
         var errors = new Dictionary<string, string[]>();
 
-        if (string.IsNullOrWhiteSpace(req.FirstName))
-            errors["firstName"] = ["First name is required."];
-        if (string.IsNullOrWhiteSpace(req.LastName))
-            errors["lastName"] = ["Last name is required."];
-        if (string.IsNullOrWhiteSpace(req.CompanyName))
-            errors["companyName"] = ["Company name is required."];
+        ValidateRequiredText(errors, "firstName", req.FirstName, "First name");
+        ValidateRequiredText(errors, "lastName", req.LastName, "Last name");
+        ValidateRequiredText(errors, "companyName", req.CompanyName, "Company name");
 
         if (string.IsNullOrWhiteSpace(req.Email))
         {
             errors["email"] = ["Email is required."];
+        }
+        else if (req.Email.Length > _validation.MaxEmailLength)
+        {
+            errors["email"] = [$"Email must be {_validation.MaxEmailLength} characters or fewer."];
         }
         else
         {
@@ -54,11 +55,22 @@ public class LeadService(
 
         if (req.BudgetBand is null)
             errors["budgetBand"] = ["Budget band is required."];
+        else if (!Enum.IsDefined(req.BudgetBand.Value))
+            errors["budgetBand"] = ["Unknown budget band."];
 
         return (errors.Count == 0, errors);
     }
 
-    public async Task<Lead> CreateAsync(CreateLeadRequest req)
+    private void ValidateRequiredText(
+        Dictionary<string, string[]> errors, string key, string value, string label)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            errors[key] = [$"{label} is required."];
+        else if (value.Length > _validation.MaxFieldLength)
+            errors[key] = [$"{label} must be {_validation.MaxFieldLength} characters or fewer."];
+    }
+
+    public async Task<LeadDto> CreateAsync(CreateLeadRequest req, CancellationToken cancellationToken = default)
     {
         var lead = new Lead
         {
@@ -73,72 +85,41 @@ public class LeadService(
         };
 
         db.Leads.Add(lead);
-        await db.SaveChangesAsync();
+        await db.SaveChangesAsync(cancellationToken);
 
-        await hub.Clients.All.SendAsync("leadCreated", ToDto(lead));
+        var dto = LeadDto.From(lead);
+        await hub.Clients.All.SendAsync("leadCreated", dto, cancellationToken);
         logger.LogInformation("Lead created {LeadId}", lead.Id);
 
-        _ = SyncToHubSpotAsync(lead.Id);
+        // Hand off CRM sync to the background worker (retries + own DI scope).
+        await syncQueue.EnqueueAsync(lead.Id, cancellationToken);
 
-        return lead;
+        return dto;
     }
 
-    private async Task SyncToHubSpotAsync(Guid leadId)
+    public async Task<IReadOnlyList<LeadDto>> GetAllAsync(CancellationToken cancellationToken = default) =>
+        await db.Leads
+            .OrderByDescending(l => l.CreatedAt)
+            .Select(l => LeadDto.From(l))
+            .ToListAsync(cancellationToken);
+
+    public async Task<AnalyticsResponse> GetAnalyticsAsync(CancellationToken cancellationToken = default)
     {
-        // Fire-and-forget: this runs after the HTTP request (and its DI scope) has
-        // ended, so it must own a fresh scope instead of the disposed request-scoped
-        // DbContext captured by this service.
-        using var scope = scopeFactory.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        // Aggregate in the database rather than materializing every row.
+        var stats = await db.Leads
+            .GroupBy(_ => 1)
+            .Select(g => new
+            {
+                TotalLeads = g.Count(),
+                TotalPipelineValue = g.Sum(l => l.EstimatedValue),
+                Synced = g.Count(l => l.HubSpotSyncStatus == HubSpotSyncStatus.Synced),
+                Pending = g.Count(l => l.HubSpotSyncStatus == HubSpotSyncStatus.Pending),
+                Failed = g.Count(l => l.HubSpotSyncStatus == HubSpotSyncStatus.Failed)
+            })
+            .SingleOrDefaultAsync(cancellationToken);
 
-        var lead = await db.Leads.FindAsync(leadId);
-        if (lead is null) return;
-
-        try
-        {
-            var result = await hubSpot.UpsertContactAsync(lead);
-            lead.HubSpotSyncStatus = result.Success ? HubSpotSyncStatus.Synced : HubSpotSyncStatus.Failed;
-            lead.HubSpotContactId = result.ContactId;
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "HubSpot sync exception for lead {LeadId}", leadId);
-            lead.HubSpotSyncStatus = HubSpotSyncStatus.Failed;
-        }
-
-        await db.SaveChangesAsync();
-        await hub.Clients.All.SendAsync("leadUpdated", ToDto(lead));
+        return stats is null
+            ? new AnalyticsResponse(0, 0, 0, 0, 0)
+            : new AnalyticsResponse(stats.TotalLeads, stats.TotalPipelineValue, stats.Synced, stats.Pending, stats.Failed);
     }
-
-    public async Task<IEnumerable<object>> GetAllAsync() =>
-        await db.Leads.OrderByDescending(l => l.CreatedAt)
-                      .Select(l => (object)ToDto(l))
-                      .ToListAsync();
-
-    public async Task<AnalyticsResponse> GetAnalyticsAsync()
-    {
-        var leads = await db.Leads.ToListAsync();
-        return new AnalyticsResponse(
-            TotalLeads: leads.Count,
-            TotalPipelineValue: leads.Sum(l => l.EstimatedValue),
-            SyncedCount: leads.Count(l => l.HubSpotSyncStatus == HubSpotSyncStatus.Synced),
-            PendingCount: leads.Count(l => l.HubSpotSyncStatus == HubSpotSyncStatus.Pending),
-            FailedCount: leads.Count(l => l.HubSpotSyncStatus == HubSpotSyncStatus.Failed)
-        );
-    }
-
-    private static object ToDto(Lead l) => new
-    {
-        id = l.Id,
-        firstName = l.FirstName,
-        lastName = l.LastName,
-        email = l.Email,
-        companyName = l.CompanyName,
-        budgetBand = l.BudgetBand.ToString(),
-        estimatedValue = l.EstimatedValue,
-        localStatus = l.LocalStatus.ToString(),
-        hubSpotSyncStatus = l.HubSpotSyncStatus.ToString(),
-        hubSpotContactId = l.HubSpotContactId,
-        createdAt = l.CreatedAt
-    };
 }
